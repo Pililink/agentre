@@ -694,7 +694,10 @@ function ProviderFormDialog({
         if (!next) onClose();
       }}
     >
-      <DialogContent className="max-w-[560px]">
+      <DialogContent
+        className="max-w-[560px]"
+        onPointerDownOutside={(event) => event.preventDefault()}
+      >
         {editor.kind !== "closed" ? (
           <ProviderForm
             key={

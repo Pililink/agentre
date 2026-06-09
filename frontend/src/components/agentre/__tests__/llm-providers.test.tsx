@@ -214,4 +214,28 @@ describe("LlmProvidersPanel", () => {
 
     expect(dialog).not.toHaveTextContent("Save failed");
   });
+
+  it("Given provider form has typed values, When clicking outside, Then keeps the dialog open", async () => {
+    const user = userEvent.setup();
+    installAppMock();
+    render(<LlmProvidersPanel />);
+
+    await screen.findByRole("table", { name: "LLM provider list" });
+    await user.click(screen.getByRole("button", { name: "New Provider" }));
+
+    const dialog = await screen.findByRole("dialog");
+    const nameInput = screen.getByPlaceholderText(
+      "Example: production / local Ollama",
+    ) as HTMLInputElement;
+    await user.type(nameInput, "Draft provider");
+
+    const overlay = document.querySelector('[data-slot="dialog-overlay"]');
+    expect(overlay).toBeInTheDocument();
+
+    await user.click(overlay as Element);
+
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(nameInput.value).toBe("Draft provider");
+    expect(dialog).toContainElement(nameInput);
+  });
 });
