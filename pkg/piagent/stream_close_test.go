@@ -5,14 +5,12 @@ import (
 	"errors"
 	"io"
 	"os"
-	"os/exec"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/smartystreets/goconvey/convey"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestStreamClose(t *testing.T) {
@@ -64,6 +62,24 @@ func TestStreamClose(t *testing.T) {
 
 			convey.So(err, convey.ShouldNotBeNil)
 			assert.Contains(t, err.Error(), "exit status 2")
+			assert.True(t, proc.signaled, "running process should be interrupted during Close")
+		})
+	})
+
+	convey.Convey("Given a running pi-agent RPC stream behind a Windows npm cmd shim", t, func() {
+		proc := newFakeProcess(t)
+		stream := newStream(proc.rpcProcess(), time.Second)
+
+		convey.Convey("When Close interrupts it and the shim reports exit status 1 without stderr, then Close treats cleanup as successful", func() {
+			proc.finishOnSignal(errors.New("exit status 1"))
+
+			err := stream.Close(context.Background())
+
+			if isWindowsCmdInterruptExit(errors.New("exit status 1"), "") {
+				convey.So(err, convey.ShouldBeNil)
+			} else {
+				convey.So(err, convey.ShouldNotBeNil)
+			}
 			assert.True(t, proc.signaled, "running process should be interrupted during Close")
 		})
 	})
@@ -133,10 +149,7 @@ func (f *fakeProcess) Signal(sig os.Signal) error {
 
 func interruptExitError(t *testing.T) error {
 	t.Helper()
-	cmd := exec.Command("sh", "-c", "kill -INT $$")
-	err := cmd.Run()
-	require.Error(t, err)
-	return err
+	return errors.New("signal: interrupt")
 }
 
 type fakeRunner struct {

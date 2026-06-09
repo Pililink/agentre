@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -181,7 +182,7 @@ func wrapExitError(err error, stderr string) error {
 }
 
 func wrapTerminateExitError(err error, stderr string) error {
-	if err == nil || isInterruptExit(err) {
+	if err == nil || isInterruptExit(err) || isWindowsCmdInterruptExit(err, stderr) {
 		return nil
 	}
 	return wrapExitError(err, stderr)
@@ -192,6 +193,13 @@ func isInterruptExit(err error) bool {
 		return false
 	}
 	return strings.TrimSpace(err.Error()) == "signal: interrupt"
+}
+
+func isWindowsCmdInterruptExit(err error, stderr string) bool {
+	if runtime.GOOS != "windows" || err == nil || strings.TrimSpace(stderr) != "" {
+		return false
+	}
+	return strings.TrimSpace(err.Error()) == "exit status 1"
 }
 
 func failureResponseError(r rpcResponse) error {
