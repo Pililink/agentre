@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -17,6 +18,8 @@ import (
 )
 
 func TestClientStream_StartThreadAndMapsEvents(t *testing.T) {
+	t.Setenv("CODEX_HOME", t.TempDir())
+
 	// Given a Codex app-server that accepts a fresh thread and streams one turn.
 	runner := &fakeAppServerRunner{t: t}
 	runner.handler = func(t *testing.T, h *fakeAppServerHandle) {
@@ -100,6 +103,51 @@ func TestClientStream_StartThreadAndMapsEvents(t *testing.T) {
 	assert.Equal(t, "codex-test", runner.opts[0].Binary)
 	assert.Equal(t, []string{"app-server", "--listen", "stdio://"}, runner.opts[0].Args)
 	assert.Equal(t, "/tmp/work", runner.opts[0].Cwd)
+}
+
+func TestClientStream_OverridesLegacyPriorityServiceTier(t *testing.T) {
+	// Given a Codex home with a legacy service_tier value no longer accepted by
+	// newer app-server builds.
+	codexHome := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(codexHome, "config.toml"), []byte(`service_tier = "priority"`+"\n"), 0o600))
+	runner := &fakeAppServerRunner{t: t}
+	runner.handler = func(t *testing.T, h *fakeAppServerHandle) {
+		sc := bufio.NewScanner(h.stdinR)
+		respondRPC(h, readRPCReq(t, sc), map[string]any{})
+		_ = readRPCReq(t, sc)
+		startReq := readRPCReq(t, sc)
+		assert.Equal(t, "thread/start", startReq.Method)
+		respondRPC(h, startReq, map[string]any{"thread": map[string]any{"id": "thread-new"}})
+		turnReq := readRPCReq(t, sc)
+		assert.Equal(t, "turn/start", turnReq.Method)
+		respondRPC(h, turnReq, map[string]any{"turn": map[string]any{"id": "turn-1", "status": "inProgress"}})
+		h.send(map[string]any{
+			"method": "turn/completed",
+			"params": map[string]any{"threadId": "thread-new", "turnId": "turn-1", "turn": map[string]any{"id": "turn-1", "status": "completed"}},
+		})
+	}
+
+	client := New(
+		WithEnv(map[string]string{"CODEX_HOME": codexHome}),
+		WithAppServerRunnerForTesting(runner),
+	)
+
+	// When the app-server is started through Agentre.
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	stream, err := client.Stream(ctx, "hello")
+	require.NoError(t, err)
+	for stream.Next() {
+	}
+	require.NoError(t, stream.Close(ctx))
+
+	// Then Agentre adds a process-local compatibility override instead of
+	// requiring the user's config.toml to be rewritten.
+	require.Len(t, runner.opts, 1)
+	assert.Equal(t, []string{
+		"app-server", "--listen", "stdio://",
+		"--config", `service_tier="fast"`,
+	}, runner.opts[0].Args)
 }
 
 func TestClientStream_ResumeThread(t *testing.T) {
@@ -434,6 +482,8 @@ func TestClientGoal_RequiresThreadID(t *testing.T) {
 }
 
 func TestClientStream_PassesModelAndConfigOverrides(t *testing.T) {
+	t.Setenv("CODEX_HOME", t.TempDir())
+
 	runner := &fakeAppServerRunner{t: t}
 	runner.handler = func(t *testing.T, h *fakeAppServerHandle) {
 		sc := bufio.NewScanner(h.stdinR)

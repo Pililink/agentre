@@ -37,6 +37,28 @@ func TestStreamClose(t *testing.T) {
 		})
 	})
 
+	convey.Convey("Given a completed pi-agent text probe whose cleanup exits non-zero", t, func() {
+		runner := &fakeRunner{process: newFakeProcess(t)}
+		runner.process.stdout = strings.NewReader(strings.Join([]string{
+			`{"type":"response","command":"prompt","success":true}`,
+			`{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"pong"}}`,
+			`{"type":"agent_end","messages":[]}`,
+			"",
+		}, "\n"))
+		runner.process.finishOnStdinClose(errors.New("exit status 0xc0000409"))
+		client := New(
+			WithRPCProcessRunnerForTesting(runner),
+			WithKillGrace(time.Second),
+		)
+
+		convey.Convey("When Text already observed Done, then cleanup failure does not replace the successful result", func() {
+			text, err := client.Text(context.Background(), "ping")
+
+			convey.So(err, convey.ShouldBeNil)
+			convey.So(text, convey.ShouldEqual, "pong")
+		})
+	})
+
 	convey.Convey("Given a running pi-agent RPC stream", t, func() {
 		proc := newFakeProcess(t)
 		stream := newStream(proc.rpcProcess(), time.Second)
@@ -83,33 +105,54 @@ func TestStreamClose(t *testing.T) {
 			assert.True(t, proc.signaled, "running process should be interrupted during Close")
 		})
 	})
+
+	convey.Convey("Given a running pi-agent RPC process that exits on stdin EOF", t, func() {
+		proc := newFakeProcess(t)
+		stream := newStream(proc.rpcProcess(), 20*time.Millisecond)
+
+		convey.Convey("When Close terminates it, then stdin is closed before force-killing the process", func() {
+			proc.finishOnStdinClose(nil)
+			proc.finishOnKill(errors.New("exit status 1"))
+
+			err := stream.Close(context.Background())
+
+			convey.So(err, convey.ShouldBeNil)
+			assert.True(t, proc.stdin.closed, "Close should close RPC stdin so Node-based shims can exit")
+			assert.False(t, proc.killed, "process should not need a forced kill after stdin EOF")
+		})
+	})
 }
 
 type fakeProcess struct {
 	t       *testing.T
+	stdin   *fakeStdin
 	stdout  *strings.Reader
 	stderr  *strings.Reader
 	done    chan error
 	signalC chan os.Signal
+	killC   chan struct{}
 
 	signaled bool
+	killed   bool
 }
 
 func newFakeProcess(t *testing.T) *fakeProcess {
 	t.Helper()
 	return &fakeProcess{
 		t:       t,
+		stdin:   newFakeStdin(),
 		stdout:  strings.NewReader(""),
 		stderr:  strings.NewReader(""),
 		done:    make(chan error, 1),
 		signalC: make(chan os.Signal, 1),
+		killC:   make(chan struct{}, 1),
 	}
 }
 
 func (f *fakeProcess) rpcProcess() *rpcProcess {
 	return &rpcProcess{
 		handle: f,
-		stdin:  io.Discard,
+		stdin:  f.stdin,
 		lines:  nil,
 		stderr: &lockedBuffer{},
 		done:   f.done,
@@ -124,7 +167,23 @@ func (f *fakeProcess) finishOnSignal(err error) {
 	}()
 }
 
-func (f *fakeProcess) Stdin() io.Writer  { return io.Discard }
+func (f *fakeProcess) finishOnStdinClose(err error) {
+	f.t.Helper()
+	go func() {
+		<-f.stdin.closeC
+		f.done <- err
+	}()
+}
+
+func (f *fakeProcess) finishOnKill(err error) {
+	f.t.Helper()
+	go func() {
+		<-f.killC
+		f.done <- err
+	}()
+}
+
+func (f *fakeProcess) Stdin() io.Writer  { return f.stdin }
 func (f *fakeProcess) Stdout() io.Reader { return f.stdout }
 func (f *fakeProcess) Stderr() io.Reader { return f.stderr }
 
@@ -136,7 +195,14 @@ func (f *fakeProcess) Wait() error {
 	return err
 }
 
-func (f *fakeProcess) Kill() error { return nil }
+func (f *fakeProcess) Kill() error {
+	f.killed = true
+	select {
+	case f.killC <- struct{}{}:
+	default:
+	}
+	return nil
+}
 
 func (f *fakeProcess) Signal(sig os.Signal) error {
 	f.signaled = true
@@ -162,4 +228,23 @@ func (r *fakeRunner) Start(context.Context, procOptions) (processHandle, error) 
 
 func TestFakeProcessImplementsProcessHandle(t *testing.T) {
 	var _ processHandle = (*fakeProcess)(nil)
+}
+
+type fakeStdin struct {
+	closeC chan struct{}
+	closed bool
+}
+
+func newFakeStdin() *fakeStdin {
+	return &fakeStdin{closeC: make(chan struct{})}
+}
+
+func (s *fakeStdin) Write(p []byte) (int, error) { return len(p), nil }
+
+func (s *fakeStdin) Close() error {
+	if !s.closed {
+		s.closed = true
+		close(s.closeC)
+	}
+	return nil
 }

@@ -421,9 +421,10 @@ func (c *Client) defaultRunSpec() runSpec {
 }
 
 func (c *Client) startApp(ctx context.Context) (*appClient, error) {
+	config := appendLegacyPriorityServiceTierOverride(c.config, c.env)
 	return newAppClient(ctx, c.runner, procOptions{
 		Binary: c.binary,
-		Args:   buildAppServerArgs(c.config, c.extraArgs),
+		Args:   buildAppServerArgs(config, c.extraArgs),
 		Cwd:    c.cwd,
 		Env:    buildEnv(c.env),
 	})

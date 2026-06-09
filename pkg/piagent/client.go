@@ -75,6 +75,7 @@ func (c *Client) Text(ctx context.Context, prompt string, opts ...RunOption) (st
 	}
 	var b strings.Builder
 	var stopErr error
+	completed := false
 	for stream.Next() {
 		ev := stream.Event()
 		switch ev.Kind {
@@ -84,9 +85,11 @@ func (c *Client) Text(ctx context.Context, prompt string, opts ...RunOption) (st
 			if ev.Err != nil {
 				stopErr = ev.Err
 			}
+		case EventDone:
+			completed = true
 		}
 	}
-	if err := stream.Close(ctx); err != nil && stopErr == nil {
+	if err := stream.Close(ctx); err != nil && stopErr == nil && !completed {
 		stopErr = err
 	}
 	if stopErr != nil {
@@ -159,6 +162,7 @@ func (p *rpcProcess) terminate(ctx context.Context, grace time.Duration) error {
 	if p == nil || p.handle == nil {
 		return nil
 	}
+	p.closeInput()
 	_ = p.handle.Signal(interruptSignal())
 	timer := time.NewTimer(grace)
 	defer timer.Stop()
@@ -171,6 +175,14 @@ func (p *rpcProcess) terminate(ctx context.Context, grace time.Duration) error {
 	case <-ctx.Done():
 		_ = p.handle.Kill()
 		return ctx.Err()
+	}
+}
+
+func (p *rpcProcess) closeInput() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if closer, ok := p.stdin.(io.Closer); ok {
+		_ = closer.Close()
 	}
 }
 
