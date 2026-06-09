@@ -73,6 +73,16 @@ func TestBuildCodexEnv_Basic(t *testing.T) {
 	})
 }
 
+func TestBuildPiAgentEnv_Basic(t *testing.T) {
+	t.Run("不默认注入 PI_OFFLINE，让 pi 测试和运行使用 CLI 自身在线能力", func(t *testing.T) {
+		env, err := BuildPiAgentEnv(&agent_backend_entity.AgentBackend{EnvJSON: `{"PI_CODING_AGENT_DIR":"C:\\pi-agentre"}`})
+		require.NoError(t, err)
+		assert.Equal(t, `C:\pi-agentre`, env["PI_CODING_AGENT_DIR"])
+		_, hasOffline := env["PI_OFFLINE"]
+		assert.False(t, hasOffline, "PI_OFFLINE 会让 pi 进入 offline mode，测试连接会卡到超时")
+	})
+}
+
 // TestCodexReasoningEffortConfigValue 锁住 codex 启动层的 reasoning effort 转译：
 // xhigh 直传；max 属于其它后端的更高档语义，在 codex 下兼容折叠到 high；
 // off / 未知值 → 空串（不下发）。

@@ -263,7 +263,7 @@ func TestBuildLaunchCommand_PiAgentWithThinking(t *testing.T) {
 
 	assert.NotContains(t, cmd, "\n", "命令必须是单行")
 	assert.True(t, strings.HasPrefix(cmd, "cd '"+cwd+"' && "), "前缀应为 cd '<cwd>' && ，got %q", cmd)
-	assert.Contains(t, cmd, "PI_OFFLINE='1'")
+	assert.NotContains(t, cmd, "PI_OFFLINE", "pi backend must stay online for model requests")
 	assert.Contains(t, cmd, "PI_CODING_AGENT_DIR='/tmp/pi-agentre'")
 	assert.Contains(t, cmd, "pi --mode rpc --no-context-files --thinking high")
 	assert.NotContains(t, cmd, "--model", "pi backend should use the user's ~/.pi/agent default model unless explicitly configured")
