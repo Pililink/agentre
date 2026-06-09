@@ -1682,7 +1682,7 @@ function CliPathField({
         <Input
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          placeholder={`/usr/local/bin/${bin}`}
+          placeholder={bin}
           className="font-mono"
         />
         <Button

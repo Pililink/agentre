@@ -122,6 +122,10 @@ function installAppMock(overrides: Partial<AppMockShape> = {}) {
   return merged;
 }
 
+function cliPathInput(dialog: HTMLElement, bin: string) {
+  return within(dialog).getByPlaceholderText(bin) as HTMLInputElement;
+}
+
 afterEach(() => {
   vi.clearAllMocks();
 });
@@ -480,9 +484,7 @@ describe("AgentBackendsPanel", () => {
       within(dialog).getByRole("button", { name: /Pi Agent CLI/ }),
     );
 
-    const input = within(dialog).getByPlaceholderText(
-      "/usr/local/bin/pi",
-    ) as HTMLInputElement;
+    const input = cliPathInput(dialog, "pi");
     await waitFor(() => expect(input.value).toBe("/opt/homebrew/bin/pi"));
     expect(
       within(dialog).getByText(/Pi Agent standalone config/),
@@ -917,11 +919,27 @@ describe("AgentBackendsPanel", () => {
       expect(resolveFn).toHaveBeenCalledWith(
         expect.objectContaining({ type: "claudecode" }),
       );
-      const input = within(dialog).getByPlaceholderText(
-        "/usr/local/bin/claude",
-      ) as HTMLInputElement;
+      const input = cliPathInput(dialog, "claude");
       expect(input.value).toBe("/opt/homebrew/bin/claude");
     });
+  });
+
+  it("CLI 路径 placeholder 使用 binary 名而不是 Unix 绝对路径", async () => {
+    const user = userEvent.setup();
+    installAppMock();
+    render(<AgentBackendsPanel />);
+
+    await screen.findByRole("table", { name: "Agent backend list" });
+    await user.click(screen.getByRole("button", { name: /New Backend/ }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(
+      within(dialog).getByRole("button", { name: /Claude Code CLI/ }),
+    );
+
+    expect(cliPathInput(dialog, "claude")).toBeInTheDocument();
+    expect(
+      within(dialog).queryByPlaceholderText("/usr/local/bin/claude"),
+    ).not.toBeInTheDocument();
   });
 
   it("切到 codex 时自动识别命中 → input 显示 codex 的绝对路径", async () => {
@@ -941,9 +959,7 @@ describe("AgentBackendsPanel", () => {
       expect(resolveFn).toHaveBeenCalledWith(
         expect.objectContaining({ type: "codex" }),
       );
-      const input = within(dialog).getByPlaceholderText(
-        "/usr/local/bin/codex",
-      ) as HTMLInputElement;
+      const input = cliPathInput(dialog, "codex");
       expect(input.value).toBe("/usr/local/bin/codex");
     });
   });
@@ -1002,9 +1018,7 @@ describe("AgentBackendsPanel", () => {
     );
 
     // 给一点时机让 ResolveCLIPath 的 Promise 完成；命中分支已被其它用例覆盖，这里仅断终态。
-    const input = within(dialog).getByPlaceholderText(
-      "/usr/local/bin/claude",
-    ) as HTMLInputElement;
+    const input = cliPathInput(dialog, "claude");
     await waitFor(() => expect(input.value).toBe(""));
   });
 
@@ -1024,9 +1038,7 @@ describe("AgentBackendsPanel", () => {
       within(dialog).getByRole("button", { name: /Claude Code CLI/ }),
     );
 
-    const input = within(dialog).getByPlaceholderText(
-      "/usr/local/bin/claude",
-    ) as HTMLInputElement;
+    const input = cliPathInput(dialog, "claude");
     await waitFor(() => expect(input.value).toBe("/first/claude"));
 
     // 用户手改了值，然后点按钮重识别 → 按钮要覆盖手填值。
@@ -1052,9 +1064,7 @@ describe("AgentBackendsPanel", () => {
     const dialog = await screen.findByRole("dialog");
     await user.click(within(dialog).getByRole("button", { name: /Codex CLI/ }));
 
-    const input = within(dialog).getByPlaceholderText(
-      "/usr/local/bin/codex",
-    ) as HTMLInputElement;
+    const input = cliPathInput(dialog, "codex");
     fireEvent.change(input, { target: { value: "/manual/codex" } });
 
     await user.click(within(dialog).getByRole("button", { name: /Detect/ }));
