@@ -98,16 +98,55 @@ func ResolveBinaryInPath(binary, searchPath string) (string, bool) {
 		if dir == "" {
 			dir = "."
 		}
-		candidate := filepath.Join(dir, binary)
-		if !IsExecutableFile(candidate) {
-			continue
+		for _, name := range executableLookupNames(binary) {
+			candidate := filepath.Join(dir, name)
+			if !IsExecutableFile(candidate) {
+				continue
+			}
+			if IsAppBundleWrapper(candidate) {
+				continue
+			}
+			return candidate, true
 		}
-		if IsAppBundleWrapper(candidate) {
-			continue
-		}
-		return candidate, true
 	}
 	return "", false
+}
+
+func executableLookupNames(binary string) []string {
+	if runtime.GOOS != "windows" || filepath.Ext(binary) != "" {
+		return []string{binary}
+	}
+	names := make([]string, 0, len(windowsExecutableExtensions())+1)
+	for _, ext := range windowsExecutableExtensions() {
+		names = append(names, binary+ext)
+	}
+	names = append(names, binary)
+	return names
+}
+
+func windowsExecutableExtensions() []string {
+	raw := strings.TrimSpace(os.Getenv("PATHEXT"))
+	if raw == "" {
+		raw = ".COM;.EXE;.BAT;.CMD"
+	}
+	seen := map[string]struct{}{}
+	out := []string{}
+	for _, ext := range strings.Split(raw, string(os.PathListSeparator)) {
+		ext = strings.TrimSpace(ext)
+		if ext == "" {
+			continue
+		}
+		if !strings.HasPrefix(ext, ".") {
+			ext = "." + ext
+		}
+		ext = strings.ToLower(ext)
+		if _, ok := seen[ext]; ok {
+			continue
+		}
+		seen[ext] = struct{}{}
+		out = append(out, ext)
+	}
+	return out
 }
 
 // SearchPathFrom returns basePath plus CLI locations that GUI-launched macOS

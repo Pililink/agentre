@@ -64,3 +64,37 @@ func TestResolveBinaryForEnvUsesAugmentedPATH(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, binary, got)
 }
+
+func TestResolveBinaryInPathUsesWindowsPATHEXT(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows PATHEXT lookup only applies on Windows")
+	}
+
+	binDir := t.TempDir()
+	want := filepath.Join(binDir, "claude.exe")
+	require.NoError(t, os.WriteFile(want, []byte{}, 0o644))
+	t.Setenv("PATHEXT", ".COM;.EXE;.BAT;.CMD")
+
+	got, ok := ResolveBinaryInPath("claude", binDir)
+
+	require.True(t, ok)
+	assert.Equal(t, want, got)
+}
+
+func TestResolveBinaryInPathPrefersWindowsPATHEXTOverExtensionlessShim(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows PATHEXT lookup only applies on Windows")
+	}
+
+	binDir := t.TempDir()
+	posixShim := filepath.Join(binDir, "pi")
+	want := filepath.Join(binDir, "pi.cmd")
+	require.NoError(t, os.WriteFile(posixShim, []byte("#!/bin/sh\nexit 0\n"), 0o644))
+	require.NoError(t, os.WriteFile(want, []byte("@echo off\r\nexit /b 0\r\n"), 0o644))
+	t.Setenv("PATHEXT", ".COM;.EXE;.BAT;.CMD")
+
+	got, ok := ResolveBinaryInPath("pi", binDir)
+
+	require.True(t, ok)
+	assert.Equal(t, want, got)
+}
